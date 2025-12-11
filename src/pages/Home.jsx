@@ -540,9 +540,10 @@ export default function Home() {
 
                 daysOfWeek.forEach(day => {
                     const dayTasks = tasksData[day.key] || [];
-                    const nonWeeklyTasks = dayTasks.filter(t => t.recurring !== 'weekly');
-                    if (nonWeeklyTasks.length > 0) {
-                        tasksForReview[day.key] = nonWeeklyTasks;
+                    // Only show non-weekly, non-completed tasks for review
+                    const incompleteTasks = dayTasks.filter(t => t.recurring !== 'weekly' && !t.completed);
+                    if (incompleteTasks.length > 0) {
+                        tasksForReview[day.key] = incompleteTasks;
                         hasTasksToReview = true;
                     }
                 });
@@ -551,9 +552,27 @@ export default function Home() {
                     setUnfinishedTasks(tasksForReview);
                     setShowWeeklyResetDialog(true);
                 } else {
-                    base44.auth.updateMe({ last_week_reset: weekStartStr })
-                        .then(() => queryClient.invalidateQueries({ queryKey: ['currentUser'] }))
-                        .catch(error => console.error("Failed to silently update last_week_reset:", error));
+                    // No incomplete tasks, just reset weekly recurring tasks
+                    const updates = {};
+                    daysOfWeek.forEach(day => {
+                        const dayTasks = tasksData[day.key] || [];
+                        const weeklyRecurringTasks = dayTasks
+                            .filter(t => t.recurring === 'weekly')
+                            .map(t => ({ ...t, completed: false }));
+                        updates[`${day.key}_tasks`] = weeklyRecurringTasks;
+                    });
+                    
+                    base44.auth.updateMe({ 
+                        ...updates,
+                        last_week_reset: weekStartStr 
+                    })
+                        .then(() => {
+                            queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+                            daysOfWeek.forEach(day => {
+                                queryClient.invalidateQueries({ queryKey: [`${day.key}Tasks`] });
+                            });
+                        })
+                        .catch(error => console.error("Failed to reset weekly tasks:", error));
                 }
             }
         }
@@ -1263,7 +1282,7 @@ export default function Home() {
                             New Week - Task Cleanup Required
                         </DialogTitle>
                         <DialogDescription>
-                            Select any tasks you want to keep for this week. All other non-weekly tasks will be removed. (Weekly recurring tasks are kept automatically)
+                            You have unfinished tasks from last week. Select any you want to continue working on this week. All other tasks will be removed. (Weekly recurring tasks reset automatically)
                         </DialogDescription>
                     </DialogHeader>
 
